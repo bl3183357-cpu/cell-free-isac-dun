@@ -1,0 +1,27 @@
+[project]
+name = "cell-free-isac-dun"
+version = "0.1.0"
+description = "Deep Unfolding Network for Cell-Free ISAC Beamforming"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2.0",
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
+    "matplotlib>=3.8.0",
+    "cvxpy>=1.4.0", # 仅用于生成传统算法 Baseline
+]
+
+[tool.uv]
+# 明确告诉 uv：去 PyTorch 官方的源拉取带 CUDA 12.1 的版本
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+# 将 torch 强绑定到上面定义的 CUDA 12.1 索引源
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
