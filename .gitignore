@@ -1,0 +1,27 @@
+# 1. Python 缓存与环境
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# 2. PyTorch 模型权重与日志 (绝对不能提交！)
+*.pth
+*.pt
+*.ckpt
+runs/
+logs/
+tb_logs/
+wandb/
+
+# 3. 数据集与生成结果 (你的信道矩阵数据)
+data/
+datasets/
+results/
+figs/
+
+# 4. IDE 配置文件
+.vscode/
+.idea/
+*.swp
