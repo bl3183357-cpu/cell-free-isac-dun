@@ -1,53 +1,74 @@
 import torch
 import numpy as np
 
-def generate_rayleigh_channel(batch_size, num_users, num_tx_antennas, device='cuda'):
+def generate_cell_free_channel(batch_size, num_users, num_aps, antennas_per_ap, device='cuda'):
     """
-    生成通信用户的瑞利衰落信道 (Rayleigh Fading Channel)
-    数学模型: H ~ CN(0, 1)，即实部和虚部均服从 N(0, 0.5) 的高斯分布
+    生成符合物理规律的 Cell-Free 瑞利衰落信道
+    包含大尺度衰落 (基于距离的路径损耗) 和 小尺度衰落
+    """
+    total_antennas = num_aps * antennas_per_ap
     
-    参数:
-        batch_size: 批次大小 (一次并行计算多少组信道)
-        num_users: 通信用户数 K
-        num_tx_antennas: Cell-Free 系统总发射天线数 (M个AP * 每个AP N根天线)
-        device: 运行设备 ('cuda' 或 'cpu')
-    返回:
-        H: 形状为 (batch_size, num_users, num_tx_antennas) 的复数张量
-    """
-    # 生成实部和虚部，方差为 0.5 (标准差为 sqrt(0.5))
+    # 1. 生成小尺度衰落 (Small-scale fading) g ~ CN(0, 1)
     std_dev = np.sqrt(0.5)
-    real_part = torch.randn(batch_size, num_users, num_tx_antennas, device=device) * std_dev
-    imag_part = torch.randn(batch_size, num_users, num_tx_antennas, device=device) * std_dev
+    g_real = torch.randn(batch_size, num_users, total_antennas, device=device) * std_dev
+    g_imag = torch.randn(batch_size, num_users, total_antennas, device=device) * std_dev
+    G = torch.complex(g_real, g_imag)
     
-    # 合成为复数张量
-    H = torch.complex(real_part, imag_part)
+    # 2. 生成大尺度衰落系数 Beta (Large-scale fading)
+    # 在实际仿真中，这应该由随机撒点(AP坐标和用户坐标)计算距离得出。
+    # 这里我们用一个简化的对数正态分布或均匀分布模拟不同AP到用户的巨大增益差异
+    # 形状: (batch_size, num_users, num_aps)
+    # 假设路径损耗在 -60dB 到 -100dB 之间波动 (数值仅为示例)
+    beta_db = -60.0 - 40.0 * torch.rand(batch_size, num_users, num_aps, device=device)
+    beta_linear = 10 ** (beta_db / 10.0)
+    
+    # 3. 将 Beta 扩展到每个 AP 的所有天线上
+    # 同一个 AP 上的天线共享相同的大尺度衰落
+    # 形状: (batch_size, num_users, num_aps, antennas_per_ap)
+    beta_expanded = beta_linear.unsqueeze(-1).expand(-1, -1, -1, antennas_per_ap)
+    
+    # 重塑为与 G 相同的形状: (batch_size, num_users, total_antennas)
+    beta_flat = beta_expanded.reshape(batch_size, num_users, total_antennas)
+    
+    # 4. 组合信道: H = sqrt(Beta) * G
+    H = torch.sqrt(beta_flat) * G
+    
     return H
 
-def generate_steering_vector(batch_size, num_tx_antennas, angles=None, device='cuda'):
+def generate_cell_free_steering_vector(batch_size, num_aps, antennas_per_ap, target_angles=None, device='cuda'):
     """
-    生成雷达感知目标的均匀线阵(ULA)导向矢量 (Steering Vector)
-    数学公式: a(theta) = [1, e^{j*pi*cos(theta)}, ..., e^{j*pi*(N-1)*cos(theta)}]
-    
-    参数:
-        batch_size: 批次大小
-        num_tx_antennas: 总发射天线数
-        angles: 目标的角度(弧度制)。如果为 None，则随机生成 [0, pi] 的角度
-        device: 运行设备
-    返回:
-        a: 形状为 (batch_size, num_tx_antennas) 的复数张量
+    生成 Cell-Free 架构下的分布式感知导向矢量
+    假设每个 AP 是一个局部的 ULA，但 AP 之间没有连续的相位关系
     """
-    if angles is None:
-        # 随机生成目标角度，范围 [0, π]
-        angles = torch.rand(batch_size, 1, device=device) * np.pi
-        
-    # 天线索引: [0, 1, 2, ..., N-1]
-    indices = torch.arange(num_tx_antennas, device=device).float()
+    total_antennas = num_aps * antennas_per_ap
     
-    # 计算相位: pi * n * cos(theta) (假设天线间距 d = lambda / 2)
-    phase = np.pi * indices * torch.cos(angles)
+    if target_angles is None:
+        # 假设目标相对于每个 AP 的角度是不同的 (因为 AP 分布在不同位置)
+        # 形状: (batch_size, num_aps, 1)
+        target_angles = torch.rand(batch_size, num_aps, 1, device=device) * np.pi
     
-    # 使用 torch.polar(abs, angle) 生成复数张量: r*e^{j*theta}，这里幅度 r=1
-    ones_amplitude = torch.ones_like(phase)
-    a = torch.polar(ones_amplitude, phase)
+    # 局部天线索引: [0, 1, ..., N_A - 1]
+    local_indices = torch.arange(antennas_per_ap, device=device).float()
+    
+    # 计算每个 AP 内部的局部相位: pi * n * cos(theta_m)
+    # 形状: (batch_size, num_aps, antennas_per_ap)
+    local_phase = np.pi * local_indices.view(1, 1, -1) * torch.cos(target_angles)
+    
+    # 模拟不同 AP 之间由于距离目标不同而产生的随机初始相位偏移
+    # 形状: (batch_size, num_aps, 1)
+    ap_phase_offset = torch.rand(batch_size, num_aps, 1, device=device) * 2 * np.pi
+    
+    # 总相位 = AP初始相位 + 局部 ULA 相位
+    total_phase = ap_phase_offset + local_phase
+    
+    # 展平为总天线维度: (batch_size, total_antennas)
+    total_phase_flat = total_phase.reshape(batch_size, total_antennas)
+    
+    # 生成复数导向矢量
+    ones_amplitude = torch.ones_like(total_phase_flat)
+    a = torch.polar(ones_amplitude, total_phase_flat)
+    
+    # 注意：在真实的 ISAC 中，这里还需要乘以目标到各个 AP 的大尺度衰落(雷达方程)，
+    # 这里仅生成了纯方向矢量(幅度为1)。
     
     return a
