@@ -4,7 +4,7 @@ __pycache__/
 .venv/
 venv/
 env/
-
+*.qmd
 *.pth
 *.pt
 *.ckpt
@@ -21,3 +21,10 @@ figs/
 .vscode/
 .idea/
 *.swp
+
+.quarto/
+*_files/
+*_cache/
+.ipynb_checkpoints/
+
+build/
