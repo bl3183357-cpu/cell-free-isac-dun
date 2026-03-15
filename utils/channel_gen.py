@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-def generate_realistic_cell_free_channel(
+def generate_cell_free_channel(
     batch_size, num_users, num_aps, antennas_per_ap, 
     area_size=1000.0,      # 仿真区域大小 1000m x 1000m
     ap_height=15.0,        # AP 高度 (米)
