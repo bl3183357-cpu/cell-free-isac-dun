@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .mlp import PowerNormalizationLayer 
+from utils.baseline import get_zf_beamformer, get_heuristic_isac_beamformer
+
+
 
 class BipartiteGNN_WMMSE_Layer(nn.Module):
     """
@@ -114,10 +117,11 @@ class ISAC_GNN_UnfoldingNet(nn.Module):
     """
     基于 GNN 的 Cell-Free ISAC 深度展开网络
     """
-    def __init__(self, num_ap, antennas_per_ap, num_layers=4, hidden_dim=64, p_max=1.0):
+    def __init__(self, num_ap, antennas_per_ap, num_layers=4, hidden_dim=64, p_max=1.0, init_method='mrt'):
         super().__init__()
         self.num_layers = num_layers
-        
+        self.init_method = init_method
+
         self.unfolding_layers = nn.ModuleList([
             BipartiteGNN_WMMSE_Layer(hidden_dim) 
             for _ in range(num_layers)
@@ -129,11 +133,17 @@ class ISAC_GNN_UnfoldingNet(nn.Module):
 
     def forward(self, H, a):
         # ==========================================
-        # 步骤 0: 物理启发初始化 (MRT - 最大比传输)
+        # 步骤 0: 根据配置选择初始化/基线算法
         # ==========================================
-        # 使用信道的共轭转置作为初始波束方向，并乘以可学习的标量
-        # H: (B, K, N) -> H^H: (B, N, K)
-        W_0 = self.mrt_scale * torch.conj(torch.transpose(H, 1, 2))
+        if self.init_method == 'mrt':
+            W_0 = torch.conj(torch.transpose(H, 1, 2))
+        elif self.init_method == 'zf':
+            W_0 = get_zf_beamformer(H) # 调用你外部写的 ZF 函数
+        elif self.init_method == 'heuristic':
+            W_0 = get_heuristic_isac_beamformer(H, a) # 调用混合函数
+        else:
+            raise ValueError(f"Unknown init_method: {self.init_method}")
+
         
         # 初始功率归一化
         W = self.power_norm(W_0) 

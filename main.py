@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm 
 import numpy as np
 
+import argparse
+import os
+
 from sklearn.model_selection import train_test_split
 from torch.utils.data import TensorDataset, DataLoader
 
@@ -12,6 +15,17 @@ from utils.loss_fn import compute_isac_loss
 from models.mlp import ISAC_MLP
 from models.unfolding import ISAC_DeepUnfoldingNet
 from models.GNN_Unfolding import ISAC_GNN_UnfoldingNet
+
+import datetime 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="ISAC GNN Training")
+    # 核心实验参数
+    parser.add_argument('--algo', type=str, default='gnn_mrt', 
+                        choices=['gnn_mrt', 'gnn_zf', 'gnn_heuristic', 'zf_only', 'mrt_only', 'heuristic_only'])
+    parser.add_argument('--alpha', type=float, default=0.5, help='Trade-off between Rate and Sensing')
+    parser.add_argument('--epochs', type=int, default=100)
+    return parser.parse_args()
 
 def train_isac_model():
     # ==========================================
@@ -29,9 +43,9 @@ def train_isac_model():
     # 【修改点 1】：定义固定的数据集大小
     TOTAL_SAMPLES = 20000  
     BATCH_SIZE = 1024
-    EPOCHS = 200
+    EPOCHS = 1000
     LR = 1e-3
-    ALPHA, RATE_NORM, SENSE_NORM = 0.7, 20.0, 1024
+    ALPHA, RATE_NORM, SENSE_NORM = 0.8, 8.0, 1024
 
     # ==========================================
     # 2. 生成固定数据集并使用 sklearn 划分
@@ -77,9 +91,24 @@ def train_isac_model():
     # ==========================================
     # 3. 初始化模型与优化器
     # ==========================================
-    model = ISAC_GNN_UnfoldingNet(
-        num_ap=NUM_APS, antennas_per_ap=ANTENNAS_PER_AP, num_layers=8, hidden_dim=64, p_max=P_MAX
-    ).to(device)
+    args = parse_args()
+    
+    # 根据命令行参数配置模型
+    if args.algo == 'gnn_mrt':
+        model = ISAC_GNN_UnfoldingNet(NUM_APS, ANTENNAS_PER_AP, num_layers=4, init_method='mrt').to(device)
+    elif args.algo == 'gnn_zf':
+        model = ISAC_GNN_UnfoldingNet(NUM_APS, ANTENNAS_PER_AP, num_layers=4, init_method='zf').to(device)
+    elif args.algo == 'gnn_heuristic':
+        model = ISAC_GNN_UnfoldingNet(NUM_APS, ANTENNAS_PER_AP, num_layers=4, init_method='heuristic').to(device)
+    elif args.algo == 'mrt_only':
+        model = ISAC_GNN_UnfoldingNet(NUM_APS, ANTENNAS_PER_AP, num_layers=0, init_method='mrt').to(device)
+    elif args.algo == 'heuristic_only':
+        model = ISAC_GNN_UnfoldingNet(NUM_APS, ANTENNAS_PER_AP, num_layers=0, init_method='heuristic').to(device)
+    elif args.algo == 'zf_only':
+        model = ISAC_GNN_UnfoldingNet(NUM_APS, ANTENNAS_PER_AP, num_layers=0, init_method='zf').to(device)
+        args.epochs = 1  # 传统算法不需要迭代训练，跑 1 个 epoch 评估即可
+    else:
+        raise ValueError(f"❌ 未知的算法配置: args.algo='{args.algo}'，请检查拼写！")
 
     
     optimizer = optim.Adam(model.parameters(), lr=LR)
@@ -121,7 +150,7 @@ def train_isac_model():
             epoch_train_loss += loss.item() * H_batch.size(0)
             
         avg_train_loss = epoch_train_loss / len(train_dataset)
-        if epoch == 0:
+        if epoch % 50 == 0:
             with torch.no_grad():
                 HW = torch.bmm(H_batch, W)
 
@@ -164,7 +193,7 @@ def train_isac_model():
         epoch_val_rate = 0.0
         epoch_val_sense = 0.0
         
-        with torch.no_grad(): # 明确告诉 PyTorch 不要计算梯度，节省显存并加速
+        with torch.no_grad(): # 不计算梯度，节省显存并加速
             for H_batch, a_batch in val_loader:
                 H_batch = H_batch.to(device)
                 a_batch = a_batch.to(device)
@@ -202,12 +231,41 @@ def train_isac_model():
         })
 
     print("\n 训练完成！")
-    plot_training_history(history)
-    torch.save(model.state_dict(), "isac_gnn_weights.pth")
+    
+    train_params = {
+        'K': K,
+        'AP': NUM_APS,
+        'Ant/AP': ANTENNAS_PER_AP,
+        'Samples': TOTAL_SAMPLES,
+        'Batch': BATCH_SIZE,
+        'Epochs': EPOCHS,
+        'LR': LR,
+        'Alpha': ALPHA,
+        'Rate_Norm': RATE_NORM,
+        'Sense_Norm': SENSE_NORM
+    }
+    
+    # 调用更新后的绘图函数
+    plot_training_history(history, train_params)
+    
+    save_dir = f"./results/{args.algo}/alpha_{args.alpha}/"
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # 训练逻辑...
+    # 保存模型权重和日志到 save_dir
+    torch.save(model.state_dict(), os.path.join(save_dir, "model.pth"))
 
-def plot_training_history(history):
+
+def plot_training_history(history, params):
+    """
+    绘制训练曲线并保存
+    :param history: 包含 loss, rate, sense_power 的字典
+    :param params: 包含训练超参数的字典
+    """
     epochs = range(len(history['train_loss']))
-    plt.figure(figsize=(15, 5))
+    
+    # 稍微增加图片高度，为底部的参数文本留出空间
+    fig = plt.figure(figsize=(16, 6))
     
     plt.subplot(1, 3, 1)
     plt.plot(epochs, history['train_loss'], 'r--', label='Train Loss', alpha=0.5)
@@ -225,8 +283,30 @@ def plot_training_history(history):
     plt.title('Validation Sensing Gain')
     plt.grid(True); plt.legend()
     
-    plt.tight_layout()
-    plt.savefig("training_curves_val.png", dpi=300)
+    # ==========================================
+    # 将参数字典转换为格式化字符串
+    # ==========================================
+    # 每 5 个参数换一行，避免文本太长超出边界
+    param_items = [f"{k}: {v}" for k, v in params.items()]
+    param_str = " | ".join(param_items[:5]) + "\n" + " | ".join(param_items[5:])
+    
+    # 在图片底部添加文本框
+    plt.figtext(0.5, 0.02, f"Training Parameters:\n{param_str}", 
+                ha="center", va="bottom", fontsize=10, 
+                bbox={"facecolor":"#f0f0f0", "alpha":0.8, "pad":5, "edgecolor":"gray"})
+    
+    plt.tight_layout(rect=[0, 0.15, 1, 1]) 
+    
+    # ==========================================
+    # 生成带时间戳的唯一文件名，防止覆盖
+    # ==========================================
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"training_curves_{timestamp}.png"
+    
+    plt.savefig(filename, dpi=300)
+    print(f"\n 绘图完成！训练曲线已保存为: {filename}")
+    
+    plt.close() # 释放内存，防止在循环中多次调用时内存泄漏
 
 if __name__ == '__main__':
     train_isac_model()

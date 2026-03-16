@@ -3,14 +3,35 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# 导入你现有的模块
 from utils.channel_gen import generate_cell_free_channel, generate_cell_free_steering_vector
 from utils.loss_fn import compute_isac_loss
 from models.GNN_Unfolding import ISAC_GNN_UnfoldingNet
-from models.mlp import PowerNormalizationLayer  # 用于基线算法的功率归一化
+from models.mlp import PowerNormalizationLayer  
+
+def per_ap_power_normalize(W, num_ap=16, antennas_per_ap=4, p_max=1.0):
+    """
+    对任意波束矩阵进行单 AP 功率归一化，确保每个 AP 满功率发射
+    """
+    batch_size, num_tx, K = W.shape
+    
+    # 重塑为 (Batch, AP数量, 每个AP的天线数, 用户数)
+    W_reshaped = W.view(batch_size, num_ap, antennas_per_ap, K)
+    
+    # 计算每个 AP 的当前总功率
+    power_per_ap = torch.sum(torch.abs(W_reshaped)**2, dim=(2, 3))
+    
+    # 计算缩放因子：强制将每个 AP 的功率拉伸/压缩到 p_max
+    # 注意：基线算法通常需要满功率发射才能公平对比，所以这里直接除以当前功率
+    scaling_factor = torch.sqrt(p_max / (power_per_ap + 1e-12))
+    scaling_factor = scaling_factor.unsqueeze(-1).unsqueeze(-1)
+    
+    # 应用缩放并恢复形状
+    W_norm = (W_reshaped * scaling_factor).view(batch_size, num_tx, K)
+    
+    return W_norm
 
 
-def get_heuristic_isac_beamformer(H, a, K, rho=0.8, noise_var=1e-13):
+def get_heuristic_isac_beamformer(H, a, K, rho=0.5, noise_var=1e-13, num_ap=16, antennas_per_ap=4):
     """
     传统 ISAC 算法 1: 启发式加权 (Heuristic Trade-off)
     使用方向矢量进行能量比例混合
@@ -19,13 +40,17 @@ def get_heuristic_isac_beamformer(H, a, K, rho=0.8, noise_var=1e-13):
     W_zf = get_zf_beamformer(H, noise_var)
     W_sense = get_sensing_beamformer(a, K)
     
-    # 提取纯方向矩阵 (Frobenius 范数为 1)
+    # 提取方向 (总功率为1)
     W_zf_dir = W_zf / (torch.norm(W_zf, dim=(1,2), keepdim=True) + 1e-12)
     W_sense_dir = W_sense / (torch.norm(W_sense, dim=(1,2), keepdim=True) + 1e-12)
     
-    # 按能量比例混合 (注意是开根号，因为功率是幅度的平方)
-    W_isac = np.sqrt(rho) * W_zf_dir + np.sqrt(1 - rho) * W_sense_dir
-    return W_isac
+    # 混合 (此时总功率约为1)
+    # 注意：这里最好用 torch.sqrt 而不是 np.sqrt，保持张量操作
+    W_isac_raw = torch.sqrt(torch.tensor(rho)) * W_zf_dir + torch.sqrt(torch.tensor(1 - rho)) * W_sense_dir
+    
+    # 致命修复：将总功率为 1 的混合波束，按单 AP 约束放大到满功率 (总功率 16)！
+    return per_ap_power_normalize(W_isac_raw, num_ap, antennas_per_ap)
+
 
 def get_nsp_isac_beamformer(H, a, K, rho=0.8, noise_var=1e-13):
     """
@@ -58,10 +83,9 @@ def get_nsp_isac_beamformer(H, a, K, rho=0.8, noise_var=1e-13):
     return W_isac_nsp
 
 
-
-def get_mrt_beamformer(H):
-    """传统 MRT 波束赋形: W = H^H"""
-    return torch.conj(torch.transpose(H, 1, 2))
+def get_mrt_beamformer(H, num_ap=16, antennas_per_ap=4):
+    W_raw = torch.conj(torch.transpose(H, 1, 2))
+    return per_ap_power_normalize(W_raw, num_ap, antennas_per_ap)
 
 def get_zf_beamformer(H, noise_var=1e-13):
     """传统 ZF 波束赋形: W = H^H (H H^H)^-1"""

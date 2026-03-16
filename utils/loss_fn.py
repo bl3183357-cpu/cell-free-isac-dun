@@ -1,6 +1,6 @@
 import torch
 
-def compute_isac_loss(H, W, a, noise_var=1e-3, alpha=0.5, rate_norm=10.0, sense_norm=1.0):
+def compute_isac_loss(H, W, a, noise_var=1e-3, alpha=0.5, rate_norm=10.0, sense_norm=1024.0):
     """
     计算 Cell-Free ISAC 系统的无监督损失函数
     

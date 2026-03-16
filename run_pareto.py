@@ -1,3 +1,4 @@
+# 暂时不能用
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -120,7 +121,6 @@ def train_for_pareto_point(alpha, H_train, a_train):
 # ==========================================
 def main():
     print("生成固定的训练数据集...")
-    # 修改：直接使用 utils/channel_gen.py 中的函数，它们已经返回 Tensor 并放在了 DEVICE 上
     H_train = generate_rayleigh_channel(NUM_SAMPLES, K, M * N, device=DEVICE)
     a_train = generate_steering_vector(NUM_SAMPLES, M * N, device=DEVICE)
     
