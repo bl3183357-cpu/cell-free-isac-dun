@@ -22,6 +22,9 @@ class WMMSE_UnfoldingLayer(nn.Module):
                     (2 * self.num_tx * self.K) + (2 * self.K) + self.K
                     
         output_dim = 2 * self.num_tx * self.K # 输出更新后的波束 W 的实部和虚部
+
+        # 输入特征归一化：对拼接后的物理特征做样本级归一化，缓解不同量纲/数量级问题
+        self.feature_norm = nn.LayerNorm(input_dim)
         
         # AI 核心：一个轻量级的残差多层感知机 (Residual MLP)
         # 它负责学习如何在高维空间中更新波束，避开复杂的矩阵求逆
@@ -79,10 +82,12 @@ class WMMSE_UnfoldingLayer(nn.Module):
         a_flat = torch.cat([torch.real(a).reshape(batch_size, -1), torch.imag(a).reshape(batch_size, -1)], dim=-1)
         W_prev_flat = torch.cat([torch.real(W_prev).reshape(batch_size, -1), torch.imag(W_prev).reshape(batch_size, -1)], dim=-1)
         U_flat = torch.cat([torch.real(U).reshape(batch_size, -1), torch.imag(U).reshape(batch_size, -1)], dim=-1)
-        w_flat = w.reshape(batch_size, -1) # w 已经是实数
+        # w 可能数值跨度很大，用 log1p 压缩动态范围更稳定
+        w_flat = torch.log1p(w).reshape(batch_size, -1) # w 已经是实数
         
         # 拼接所有特征
         features = torch.cat([H_flat, a_flat, W_prev_flat, U_flat, w_flat], dim=-1)
+        features = self.feature_norm(features)
         
         # ==========================================
         # 步骤 3: AI 波束更新 (替代矩阵求逆)
