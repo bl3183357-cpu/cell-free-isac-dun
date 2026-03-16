@@ -119,7 +119,7 @@ def evaluate_models():
     
     TEST_SAMPLES = 2000  # 测试集大小
     BATCH_SIZE = 500
-    ALPHA, RATE_NORM, SENSE_NORM = 0.7, 20.0, 1024
+    ALPHA, RATE_NORM, SENSE_NORM = 0.8, 8.0, 1024
 
     # ==========================================
     # 2. 生成全新的测试数据
@@ -132,14 +132,14 @@ def evaluate_models():
     # 3. 加载训练好的 GNN 模型与归一化层
     # ==========================================
     model = ISAC_GNN_UnfoldingNet(
-        num_ap=NUM_APS, antennas_per_ap=ANTENNAS_PER_AP, num_layers=8, hidden_dim=64, p_max=P_MAX
+        num_ap=NUM_APS, antennas_per_ap=ANTENNAS_PER_AP, num_layers=8, init_method='heuristic', hidden_dim=64, p_max=P_MAX
     ).to(device)
     
     try:
         model.load_state_dict(torch.load("isac_gnn_weights.pth", map_location=device))
-        print("✅ 成功加载模型权重: isac_gnn_weights.pth")
+        print("✅ 成功加载模型权重")
     except FileNotFoundError:
-        print("❌ 未找到 isac_gnn_weights.pth，请先运行 main.py 进行训练！")
+        print("❌ 未找到模型权重文件，请先运行 main.py 进行训练！")
         return
     
     model.eval()

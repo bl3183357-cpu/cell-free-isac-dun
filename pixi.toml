@@ -8,9 +8,10 @@ platforms = ["linux-64"]
 
 [tasks]
 start = "python main.py"
-preview = { cmd = "QUARTO_TYPST=$(which typst) quarto preview paper.qmd --no-browser --no-watch-inputs" }
-test-cuda = "python -c \"import torch; print('🚀 CUDA Available:', torch.cuda.is_available()); print('💡 Device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')\""
-render = { cmd = "quarto render hello.qmd", env = { QUARTO_PYTHON = "$PIXI_PROJECT_ROOT/.pixi/envs/default/bin/python" } }
+train-heu = "python main.py --algo gnn_heuristic --alpha 0.5"
+train-mrt = "python main.py --algo gnn_mrt --alpha 0.5"
+train-zf = "python main.py --algo gnn_zf --alpha 0.5"
+eval-zf = "python main.py --algo zf_only"
 [dependencies]
 python = "3.11.*" 
 numpy = "*"
@@ -31,3 +32,4 @@ nbclient = ">=0.10.4,<0.11"
 ipykernel = ">=7.2.0,<8"
 seaborn = ">=0.13.2,<0.14"
 typst = ">=0.10.0,<0.11"
+wandb = ">=0.25.1,<0.26"

@@ -6,6 +6,7 @@ venv/
 env/
 *.qmd
 *.pdf
+*.png
 *.pth
 *.pt
 *.ckpt
@@ -13,12 +14,11 @@ runs/
 logs/
 tb_logs/
 wandb/
-
+.pixi/
 data/
 datasets/
 results/
 figs/
-
 .vscode/
 .idea/
 *.swp
