@@ -41,7 +41,6 @@ def train_isac_model():
     P_MAX = 1.0
     NOISE_VAR = 1e-13
     
-    # 【修改点 1】：定义固定的数据集大小
     TOTAL_SAMPLES = 20000  
     BATCH_SIZE = 1024
     LR = 1e-3
@@ -71,7 +70,7 @@ def train_isac_model():
         num_aps=NUM_APS, 
         antennas_per_ap=ANTENNAS_PER_AP, 
         device='cpu'
-)
+    )
 
     a_all = generate_cell_free_steering_vector(
         batch_size=TOTAL_SAMPLES, 

@@ -22,7 +22,7 @@ figs/
 .vscode/
 .idea/
 *.swp
-
+*.csv
 .quarto/
 *_files/
 *_cache/
