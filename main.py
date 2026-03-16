@@ -43,7 +43,7 @@ def train_isac_model():
     # 【修改点 1】：定义固定的数据集大小
     TOTAL_SAMPLES = 20000  
     BATCH_SIZE = 1024
-    EPOCHS = 1000
+    EPOCHS = 100
     LR = 1e-3
     ALPHA, RATE_NORM, SENSE_NORM = 0.8, 8.0, 1024
 

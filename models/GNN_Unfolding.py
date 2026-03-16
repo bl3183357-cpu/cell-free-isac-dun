@@ -138,9 +138,9 @@ class ISAC_GNN_UnfoldingNet(nn.Module):
         if self.init_method == 'mrt':
             W_0 = torch.conj(torch.transpose(H, 1, 2))
         elif self.init_method == 'zf':
-            W_0 = get_zf_beamformer(H) # 调用你外部写的 ZF 函数
+            W_0 = get_zf_beamformer(H) 
         elif self.init_method == 'heuristic':
-            W_0 = get_heuristic_isac_beamformer(H, a) # 调用混合函数
+            W_0 = get_heuristic_isac_beamformer(H, a) 
         else:
             raise ValueError(f"Unknown init_method: {self.init_method}")
 

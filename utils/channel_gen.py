@@ -79,40 +79,94 @@ def generate_cell_free_channel(
     # beta_linear, ap_coords, user_coords
     return H
 
-def generate_cell_free_steering_vector(batch_size, num_aps, antennas_per_ap, target_angles=None, device='cuda'):
+def generate_cell_free_steering_vector(
+    batch_size,
+    num_aps,
+    antennas_per_ap,
+    area_size=1000.0,
+    ap_height=15.0,
+    target_height=1.5,
+    carrier_freq_ghz=1.9,
+    device='cuda',
+    ap_coords=None,
+    target_coords=None,
+    include_pathloss=False,
+    pathloss_exp=2.0
+):
     """
-    生成 Cell-Free 架构下的分布式感知导向矢量
-    假设每个 AP 是一个局部的 ULA，但 AP 之间没有连续的相位关系
+    基于几何拓扑生成 Cell-Free 架构下的分布式感知导向矢量 a
+    风格与 generate_cell_free_channel 类似
+
+    返回:
+        a: (batch_size, total_antennas) complex
+        ap_coords: (batch_size, num_aps, 2)
+        target_coords: (batch_size, 1, 2)
     """
     total_antennas = num_aps * antennas_per_ap
-    
-    if target_angles is None:
-        # 假设目标相对于每个 AP 的角度是不同的 (因为 AP 分布在不同位置)
-        # 形状: (batch_size, num_aps, 1)
-        target_angles = torch.rand(batch_size, num_aps, 1, device=device) * np.pi
-    
-    # 局部天线索引: [0, 1, ..., N_A - 1]
-    local_indices = torch.arange(antennas_per_ap, device=device).float()
-    
-    # 计算每个 AP 内部的局部相位: pi * n * cos(theta_m)
-    # 形状: (batch_size, num_aps, antennas_per_ap)
-    local_phase = np.pi * local_indices.view(1, 1, -1) * torch.cos(target_angles)
-    
-    # 模拟不同 AP 之间由于距离目标不同而产生的随机初始相位偏移
-    # 形状: (batch_size, num_aps, 1)
-    ap_phase_offset = torch.rand(batch_size, num_aps, 1, device=device) * 2 * np.pi
-    
-    # 总相位 = AP初始相位 + 局部 ULA 相位
-    total_phase = ap_phase_offset + local_phase
-    
-    # 展平为总天线维度: (batch_size, total_antennas)
-    total_phase_flat = total_phase.reshape(batch_size, total_antennas)
-    
-    # 生成复数导向矢量
-    ones_amplitude = torch.ones_like(total_phase_flat)
-    a = torch.polar(ones_amplitude, total_phase_flat)
-    
-    # 注意：在真实的 ISAC 中，这里还需要乘以目标到各个 AP 的大尺度衰落(雷达方程)，
-    # 这里仅生成了纯方向矢量(幅度为1)。
-    
+
+    # 波长
+    c = 3e8
+    fc = carrier_freq_ghz * 1e9
+    wavelength = c / fc
+
+    # ==========================================
+    # 1. 生成空间拓扑
+    # ==========================================
+    if ap_coords is None:
+        ap_coords = torch.rand(batch_size, num_aps, 2, device=device) * area_size
+
+    if target_coords is None:
+        target_coords = torch.rand(batch_size, 1, 2, device=device) * area_size
+
+    # 目标坐标扩展到各 AP
+    # ap_coords:     (B, M, 2)
+    # target_coords: (B, 1, 2)
+    delta = target_coords - ap_coords   # (B, M, 2)
+
+    dx = delta[..., 0]
+    dy = delta[..., 1]
+
+    # ==========================================
+    # 2. 几何量：距离、角度
+    # ==========================================
+    dist_2d_sq = dx**2 + dy**2
+    height_diff_sq = (ap_height - target_height)**2
+    dist_3d = torch.sqrt(dist_2d_sq + height_diff_sq)   # (B, M)
+
+    # 每个 AP 看目标的方位角
+    theta = torch.atan2(dy, dx)   # (B, M)
+
+    # ==========================================
+    # 3. 每个 AP 内部的局部 ULA 导向矢量
+    # ==========================================
+    # 半波长间距 d = lambda / 2
+    # 相位增量 = 2pi * d/lambda * sin(theta) = pi * sin(theta)
+    local_indices = torch.arange(antennas_per_ap, device=device).float()  # (N_A,)
+
+    # (B, M, N_A)
+    local_phase = np.pi * local_indices.view(1, 1, -1) * torch.sin(theta).unsqueeze(-1)
+
+    # ==========================================
+    # 4. AP 级传播相位
+    # ==========================================
+    # (B, M, 1)
+    ap_phase = (-2.0 * np.pi / wavelength) * dist_3d.unsqueeze(-1)
+
+    total_phase = ap_phase + local_phase   # (B, M, N_A)
+
+    # ==========================================
+    # 5. 是否加入幅度衰减
+    # ==========================================
+    if include_pathloss:
+        amp = 1.0 / torch.clamp(dist_3d, min=1.0).pow(pathloss_exp / 2.0)  # (B, M)
+        amp = amp.unsqueeze(-1).expand(-1, -1, antennas_per_ap)            # (B, M, N_A)
+    else:
+        amp = torch.ones(batch_size, num_aps, antennas_per_ap, device=device)
+
+    # ==========================================
+    # 6. 生成复数导向矢量并展平
+    # ==========================================
+    a_local = torch.polar(amp, total_phase)      # (B, M, N_A)
+    a = a_local.reshape(batch_size, total_antennas)  # (B, M*N_A)
+    #可选返回ap_coords, target_coords
     return a
