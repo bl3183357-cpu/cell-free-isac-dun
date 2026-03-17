@@ -2,6 +2,9 @@ import torch
 import torch.optim as optim
 import argparse
 import os
+
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -141,13 +144,15 @@ def train_isac_model():
     # ------------------------------------------
     # 启动 Trainer
     # ------------------------------------------
+    accelerator = "gpu" if torch.cuda.is_available() else "cpu"
+
     trainer = pl.Trainer(
-        max_epochs=args.epochs if 'only' not in args.algo else 1, # 如果是传统算法只跑1个epoch评估
-        accelerator="auto",       # 自动寻找 GPU
+        max_epochs=args.epochs if 'only' not in args.algo else 1, 
+        accelerator=accelerator, 
         devices="auto",           
         logger=wandb_logger,
         callbacks=[checkpoint_callback, lr_monitor],
-        gradient_clip_val=1.0,    # 替代之前的 torch.nn.utils.clip_grad_norm_
+        gradient_clip_val=1.0,    
     )
     
     # 开始训练！
